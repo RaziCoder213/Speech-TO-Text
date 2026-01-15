@@ -13,7 +13,7 @@ def load_model():
 
 model = load_model()
 
-# Init storage
+# Store recordings
 if "recordings" not in st.session_state:
     st.session_state.recordings = []
 
@@ -25,7 +25,7 @@ audio_bytes = audio_recorder(
     neutral_color="#2ecc71",
 )
 
-# SAVE AUDIO EXPLICITLY
+# Save full audio
 if audio_bytes:
     st.session_state.recordings.append(audio_bytes)
     st.success("Audio saved")
@@ -36,14 +36,14 @@ st.subheader("📂 Saved Recordings")
 if not st.session_state.recordings:
     st.info("No recordings yet")
 else:
-    for idx, audio in enumerate(st.session_state.recordings):
+    for i, audio in enumerate(st.session_state.recordings):
         col1, col2 = st.columns([3, 1])
 
         with col1:
             st.audio(audio, format="audio/wav")
 
         with col2:
-            if st.button(f"📝 Transcribe #{idx+1}", key=f"t_{idx}"):
+            if st.button(f"📝 Transcribe #{i+1}", key=f"t{i}"):
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
                     f.write(audio)
                     path = f.name
@@ -54,7 +54,7 @@ else:
                 os.remove(path)
 
                 st.text_area(
-                    f"Text #{idx+1}",
+                    f"Text #{i+1}",
                     result["text"],
                     height=120
                 )
