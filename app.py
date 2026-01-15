@@ -2,75 +2,75 @@ import streamlit as st
 import whisper
 import tempfile
 import os
+import av
+import numpy as np
+from streamlit_webrtc import webrtc_streamer, AudioProcessorBase
 
-# Supported languages
+SAMPLE_RATE = 16000
+
 SUPPORTED_LANGUAGES = {
     "Auto Detect": None,
     "English": "en",
-    "Urdu": "urd",
+    "Urdu": "ur",
+    "Hindi": "hi",
+    "Arabic": "ar",
     "Spanish": "es",
     "French": "fr",
     "German": "de",
-    "Italian": "it",
-    "Portuguese": "pt",
-    "Dutch": "nl",
-    "Russian": "ru",
     "Chinese": "zh",
     "Japanese": "ja",
     "Korean": "ko",
-    "Arabic": "ar",
-    "Hindi": "hi",
-    "Turkish": "tr",
-    "Polish": "pl",
-    "Swedish": "sv",
-    "Norwegian": "no",
-    "Danish": "da",
-    "Finnish": "fi",
-    "Greek": "el",
-    "Thai": "th",
-    "Vietnamese": "vi",
-    "Indonesian": "id",
-    "Filipino": "fil",
-    "Hebrew": "he",
-    "Ukrainian": "uk",
 }
 
-st.set_page_config(page_title="Speech-to-Text", layout="wide")
-st.title("🎤 Speech-to-Text Transcriber")
-st.write("Upload an audio file and convert speech to text in any language")
+st.set_page_config(page_title="Live Speech-to-Text", layout="wide")
+st.title("🎤 Live Browser Speech-to-Text")
+st.write("Record your voice live in the browser and transcribe using Whisper")
 
-# Load Whisper model
 @st.cache_resource
 def load_model():
     return whisper.load_model("small")
 
 model = load_model()
 
-# Transcribe function
-def transcribe_audio(audio_path, language=None):
-    with st.spinner("Transcribing..."):
-        result = model.transcribe(audio_path, language=language, fp16=False)
-    return result
+class AudioRecorder(AudioProcessorBase):
+    def __init__(self):
+        self.frames = []
 
-# UI: Upload File
-st.subheader("📁 Upload Audio File")
+    def recv(self, frame: av.AudioFrame):
+        audio = frame.to_ndarray()
+        self.frames.append(audio)
+        return frame
+
+webrtc_ctx = webrtc_streamer(
+    key="speech-recorder",
+    audio_processor_factory=AudioRecorder,
+    media_stream_constraints={"audio": True, "video": False},
+)
+
 language = st.selectbox("Select Language", list(SUPPORTED_LANGUAGES.keys()))
-uploaded_file = st.file_uploader("Choose an audio file", type=["mp3", "wav", "m4a", "ogg", "flac"])
 
-if uploaded_file is not None:
-    if st.button("📝 Transcribe"):
-        # Save temp file
-        with tempfile.NamedTemporaryFile(suffix=os.path.splitext(uploaded_file.name)[1], delete=False) as tmp:
-            tmp.write(uploaded_file.getbuffer())
+if st.button("📝 Stop & Transcribe"):
+    if webrtc_ctx.audio_processor and webrtc_ctx.audio_processor.frames:
+        audio_data = np.concatenate(webrtc_ctx.audio_processor.frames, axis=1)
+        audio_data = audio_data.astype(np.float32) / 32768.0
+
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            import scipy.io.wavfile as wav
+            wav.write(tmp.name, SAMPLE_RATE, audio_data.T)
             tmp_path = tmp.name
 
-        # Transcribe
-        result = transcribe_audio(tmp_path, SUPPORTED_LANGUAGES[language])
+        with st.spinner("Transcribing..."):
+            result = model.transcribe(
+                tmp_path,
+                language=SUPPORTED_LANGUAGES[language],
+                fp16=False,
+            )
+
         os.remove(tmp_path)
 
         st.success("✅ Transcription complete!")
         st.write(f"**Detected Language:** {result.get('language', 'unknown').upper()}")
-        st.text_area("Transcribed Text", value=result['text'], height=200, disabled=True)
+        st.text_area("Transcribed Text", result["text"], height=200)
 
-st.divider()
-st.info("📌 **Tip:** Whisper supports 99+ languages. Use 'Auto Detect' or select your language for better accuracy!")
+    else:
+        st.warning("No audio recorded yet.")
