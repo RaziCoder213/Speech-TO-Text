@@ -2,10 +2,9 @@ import streamlit as st
 import whisper
 import tempfile
 import os
+import numpy as np
+import soundfile as sf
 from audio_recorder_streamlit import audio_recorder
-
-st.set_page_config(page_title="Speech-to-Text", layout="wide")
-st.title("🎤 Speech-to-Text Recorder")
 
 @st.cache_resource
 def load_model():
@@ -13,48 +12,30 @@ def load_model():
 
 model = load_model()
 
-# Store recordings
 if "recordings" not in st.session_state:
     st.session_state.recordings = []
 
-st.subheader("🎙️ Record Audio")
+audio_bytes = audio_recorder("Click to Record")
 
-audio_bytes = audio_recorder(
-    text="Click to Record",
-    recording_color="#e74c3c",
-    neutral_color="#2ecc71",
-)
-
-# Save full audio
 if audio_bytes:
     st.session_state.recordings.append(audio_bytes)
-    st.success("Audio saved")
 
-st.divider()
-st.subheader("📂 Saved Recordings")
+for i, audio in enumerate(st.session_state.recordings):
+    st.audio(audio, format="audio/wav")
 
-if not st.session_state.recordings:
-    st.info("No recordings yet")
-else:
-    for i, audio in enumerate(st.session_state.recordings):
-        col1, col2 = st.columns([3, 1])
+    if st.button(f"Transcribe #{i+1}", key=i):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
+            f.write(audio)
+            path = f.name
 
-        with col1:
-            st.audio(audio, format="audio/wav")
+        audio_data, sr = sf.read(path)
 
-        with col2:
-            if st.button(f"📝 Transcribe #{i+1}", key=f"t{i}"):
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
-                    f.write(audio)
-                    path = f.name
+        if len(audio_data.shape) > 1:
+            audio_data = np.mean(audio_data, axis=1)
 
-                with st.spinner("Transcribing..."):
-                    result = model.transcribe(path, fp16=False)
+        with st.spinner("Transcribing..."):
+            result = model.transcribe(audio_data, fp16=False)
 
-                os.remove(path)
+        os.remove(path)
 
-                st.text_area(
-                    f"Text #{i+1}",
-                    result["text"],
-                    height=120
-                )
+        st.text_area("Text", result["text"], height=120)
